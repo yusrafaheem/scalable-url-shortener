@@ -1,0 +1,31 @@
+# Local multi-instance setup: two app instances behind an nginx load
+# balancer, mirroring how this would sit behind a real LB (ALB/NLB, GCLB,
+# or an Nginx/Envoy ingress) in production. Run with:
+#
+#   docker compose up --build --scale app=4
+#
+# then benchmark against http://localhost:8080 instead of a single instance
+# directly, to see multi-instance scaling rather than single-process
+# scaling (which src/cluster.js already gives you on its own).
+
+version: '3.8'
+
+services:
+  app:
+    build: .
+    environment:
+      - PORT=3000
+      - WORKER_COUNT=2
+    expose:
+      - '3000'
+    restart: unless-stopped
+
+  lb:
+    image: nginx:alpine
+    ports:
+      - '8080:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
