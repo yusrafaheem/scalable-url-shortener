@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { SnowflakeGenerator } = require('../src/idgen');
+const { SnowflakeGenerator, ClockMovedBackwardsError } = require('../src/idgen');
 const { ShardedStore, shardIndexFor } = require('../src/store');
 const { RateLimiter } = require('../src/rateLimiter');
 
@@ -29,6 +29,17 @@ test('different worker ids never collide even with the same sequence', () => {
   for (const code of a) {
     assert.equal(b.has(code), false);
   }
+});
+
+test('SnowflakeGenerator throws if the system clock moves backwards', () => {
+  const gen = new SnowflakeGenerator(1);
+  gen.next(); // establish a lastTimestamp
+
+  // Simulate an NTP-style backwards clock jump by rewinding lastTimestamp
+  // past "now" instead of mocking Date.now, so this stays a pure unit test.
+  gen.lastTimestamp = gen._now() + 5000n;
+
+  assert.throws(() => gen.next(), ClockMovedBackwardsError);
 });
 
 test('shardIndexFor distributes keys across shards (not all in one bucket)', () => {

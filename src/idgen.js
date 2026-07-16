@@ -35,6 +35,18 @@ function toBase62(n) {
   return out;
 }
 
+class ClockMovedBackwardsError extends Error {
+  constructor(lastTimestamp, currentTimestamp) {
+    super(
+      `Clock moved backwards: last timestamp was ${lastTimestamp}, current is ${currentTimestamp}. ` +
+      'Refusing to mint an ID that could collide with or precede an already-issued one.'
+    );
+    this.name = 'ClockMovedBackwardsError';
+    this.lastTimestamp = lastTimestamp;
+    this.currentTimestamp = currentTimestamp;
+  }
+}
+
 class SnowflakeGenerator {
   constructor(workerId) {
     const id = BigInt(workerId) & MAX_WORKER_ID;
@@ -52,6 +64,18 @@ class SnowflakeGenerator {
 
   next() {
     let timestamp = this._now();
+
+    // Guard against the system clock moving backwards (NTP correction, leap
+    // second adjustment, manual clock change, VM migration, etc). Without
+    // this check, a backwards jump lets `timestamp < this.lastTimestamp`
+    // fall through to the "else" branch below, which resets the sequence to
+    // 0 and can mint an ID whose (timestamp, sequence) pair collides with,
+    // or sorts before, one already handed out -- silently breaking both the
+    // uniqueness and monotonicity guarantees this generator exists to
+    // provide. Fail loudly instead of returning a potentially-colliding ID.
+    if (timestamp < this.lastTimestamp) {
+      throw new ClockMovedBackwardsError(this.lastTimestamp, timestamp);
+    }
 
     if (timestamp === this.lastTimestamp) {
       this.sequence = (this.sequence + 1n) & MAX_SEQUENCE;
@@ -76,4 +100,4 @@ class SnowflakeGenerator {
   }
 }
 
-module.exports = { SnowflakeGenerator, toBase62, EPOCH };
+module.exports = { SnowflakeGenerator, toBase62, EPOCH, ClockMovedBackwardsError };
